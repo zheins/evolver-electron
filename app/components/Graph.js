@@ -8,6 +8,7 @@ import {FaArrowLeft} from 'react-icons/fa';
 import VialArrayGraph from './graphing/VialArrayGraph';
 import VialArrayBtns from './graphing/VialArrayBtns';
 import VialMenu from './graphing/VialMenu';
+import AceEditor from 'react-ace';
 
 const { dialog } = require('electron').remote
 
@@ -15,6 +16,8 @@ var path = require('path');
 var os = require('os');
 var zipdir = require('zip-dir');
 var fs = require('fs');
+
+var Tail = require('tail').Tail;
 
 const styles = {
 
@@ -40,11 +43,30 @@ class Graph extends React.Component {
       parameter: 'OD',
       parameterTitle: 'PARAMETER:',
       xaxisName: xAxisNameOD,
-      activePlot: 'ALL'
+      activePlot: 'ALL',
+      logToggleText: 'VIEW LOGS',
+      logToggleOptions: ['VIEW GRAPH', 'VIEW LOGS'],
+      logToggleState: true,
+      logData: ''
     };
   }
 
-  componentDidMount(){
+  componentDidMount() {
+    var options = {fromBeginning: false, follow: true, nLines: 200}
+    var logFilename = path.join(this.props.exptDir, 'application.log');
+    var tail = new Tail(logFilename, options);
+    fs.readFile(logFilename, 'utf8', function(err, data) {
+      if (err) throw err;
+      this.setState({logData: data})      
+    }.bind(this));
+    tail.on("line", function(data) {
+      var logData = this.state.logData;
+      logData = logData + data + '\n';
+      this.setState({logData: logData});
+    }.bind(this));
+    tail.on("error", function(error) {
+      console.log('ERROR: ', error);
+    });
   }
 
   handleYmax = event => {
@@ -109,24 +131,45 @@ class Graph extends React.Component {
     zipdir(this.props.exptDir, {saveTo: zipFilename});
   }
 
+  toggleLog = () => {
+    var logToggleState = !this.state.logToggleState;
+    var logToggleText = logToggleState ? this.state.logToggleOptions[1] : this.state.logToggleOptions[0];
+    this.setState({logToggleState: logToggleState, logToggleText: logToggleText});
+  }
+
   handleActivePlot = (event) => {
     this.setState({activePlot: event})
   }
 
   render() {
       var exptName = path.basename(this.props.exptDir);
+      var dataDisplay = this.state.logToggleState ? 
+        <VialArrayGraph
+            parameter={this.state.parameter}
+            exptDir={this.props.exptDir}
+            activePlot = {this.state.activePlot}
+            ymax={this.state.ymax}
+            timePlotted={this.state.timePlotted}
+            downsample = {this.state.downsample}
+            xaxisName = {this.state.xaxisName}/> : 
+        <div className="logViewer"><AceEditor
+            value={this.state.logData}
+            width='750px'
+            height='570px'
+            mode="python"
+            theme="terminal"
+            readOnly={true}
+            name="logViewer"
+            showGutter={false}
+            setOptions={{autoScrollEditorIntoView:true}}
+            editorProps={{$blockScrolling: true}}/></div>
+
+
     return (
       <div>
         <Link className="backHomeBtn" style={{zIndex: '10', position: 'absolute', top: '5px', left: '-20px'}} id="experiments" to={{pathname:routes.EXPTMANAGER, socket: this.props.socket, logger:this.props.logger}}><FaArrowLeft/></Link>
                 <h4 className="graphTitle">{exptName}</h4>
-        <VialArrayGraph
-          parameter={this.state.parameter}
-          exptDir={this.props.exptDir}
-          activePlot = {this.state.activePlot}
-          ymax={this.state.ymax}
-          timePlotted={this.state.timePlotted}
-          downsample = {this.state.downsample}
-          xaxisName = {this.state.xaxisName}/>
+                {dataDisplay}
         <div style={{position: 'absolute', top: '100px', left: '-10px'}}>
           <VialArrayBtns
             labels={this.state.parameterChoices}
@@ -147,7 +190,10 @@ class Graph extends React.Component {
             onSelectRadio={this.handleYmax}/>
         </div>
         <VialMenu onSelectGraph={this.handleActivePlot}/>
-        <button className={"downloadButton"} onClick={this.downloadData}>DOWNLOAD</button>
+        <div className="dataActionButtons">
+          <button className={"dataActionButton"} onClick={this.downloadData}>DOWNLOAD</button>
+          <button className={"dataActionButton"} onClick={this.toggleLog}>{this.state.logToggleText}</button>
+        </div>   
       </div>
 
     );
